@@ -459,59 +459,120 @@ function Library:CreateWindow(...)
         TextSize = 10,
     })
 
-    local function createCenteredTextbox()
-        local box = child(body, "TextBox", {
-            Name = "Auro@Textbox",
+    local searchOverlay
+    local searchBackdrop
+    local searchBox
+    local searchClosing = false
+
+    local function closeSearch()
+        if searchClosing then return end
+        if not searchOverlay or not searchOverlay.Parent then return end
+        searchClosing = true
+
+        local t1 = tween(searchBackdrop, 0.35, { BackgroundTransparency = 1 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+        local t2 = tween(searchBox, 0.35, { Size = UDim2.new(0, 0, 0.15, 0) }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+
+        t1:Play()
+        t2:Play()
+
+        t2.Completed:Once(function()
+            if searchOverlay and searchOverlay.Parent then
+                searchOverlay:Destroy()
+            end
+            searchOverlay = nil
+            searchBackdrop = nil
+            searchBox = nil
+            searchClosing = false
+        end)
+    end
+
+    local function openSearch()
+        if searchOverlay and searchOverlay.Parent then
+            if searchBox then
+                pcall(function()
+                    searchBox:CaptureFocus()
+                end)
+            end
+            return
+        end
+
+        searchClosing = false
+
+        searchOverlay = child(screen, "Frame", {
+            Name = "Auro@SearchOverlay",
+            BackgroundTransparency = 1,
+            BackgroundColor3 = Color3.new(0, 0, 0),
+            BorderSizePixel = 0,
+            Size = UDim2.fromScale(1, 1),
+            Position = UDim2.fromScale(0, 0),
+            ZIndex = 1000,
+        })
+
+        searchBackdrop = child(searchOverlay, "Frame", {
+            Name = "Auro@SearchBackdrop",
+            BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Size = UDim2.fromScale(1, 1),
+            Position = UDim2.fromScale(0, 0),
+            ZIndex = 1001,
+        })
+
+        searchBox = child(searchOverlay, "TextBox", {
+            Name = "Search",
             AnchorPoint = Vector2.new(0.5, 0.5),
             BackgroundColor3 = theme.Surface,
             BackgroundTransparency = 0,
             BorderSizePixel = 0,
             Position = UDim2.fromScale(0.5, 0.5),
             Size = UDim2.new(0, 0, 0.15, 0),
-            ZIndex = 20,
+            ZIndex = 1002,
             ClearTextOnFocus = false,
             Text = "",
-            PlaceholderText = "Type here...",
+            PlaceholderText = "Enter Your Search Query...",
             Font = Enum.Font.Gotham,
             TextColor3 = theme.Text,
             PlaceholderColor3 = theme.SubText,
             TextSize = 14,
-            TextXAlignment = Enum.TextXAlignment.Left,
+            TextXAlignment = Enum.TextXAlignment.Center,
             TextYAlignment = Enum.TextYAlignment.Center,
             ClipsDescendants = true,
         })
-        child(box, "UICorner", {
+
+        child(searchBox, "UICorner", {
             Name = "Auro@Corner",
             CornerRadius = UDim.new(0, 8),
         })
-        child(box, "UIStroke", {
+        child(searchBox, "UIStroke", {
             Name = "Auro@Stroke",
             Color = theme.Divider,
             Thickness = 1,
             ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
         })
-        child(box, "UIPadding", {
+        child(searchBox, "UIPadding", {
             Name = "Auro@Padding",
             PaddingLeft = UDim.new(0, 10),
             PaddingRight = UDim.new(0, 10),
         })
 
-        self._maid:Give(box)
-        table.insert(self._textboxes, box)
+        self._maid:Give(searchOverlay)
+        self._maid:Give(searchBackdrop)
+        self._maid:Give(searchBox)
 
-        tween(box, 0.35, {
-            Size = UDim2.new(0.8, 0, 0.15, 0),
-        }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
+        tween(searchBackdrop, 0.35, { BackgroundTransparency = 0.55 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
+        tween(searchBox, 0.35, { Size = UDim2.new(0.6, 0, 0.15, 0) }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
+
+        searchBox.FocusLost:Connect(function()
+            closeSearch()
+        end)
 
         task.defer(function()
-            if box and box.Parent then
+            if searchBox and searchBox.Parent then
                 pcall(function()
-                    box:CaptureFocus()
+                    searchBox:CaptureFocus()
                 end)
             end
         end)
-
-        return box
     end
 
     bindHover(self._maid, addBtn, "ImageColor3", theme.SubText, theme.Text)
@@ -522,7 +583,7 @@ function Library:CreateWindow(...)
     bindHover(self._maid, self._lockBtn, "BackgroundColor3", theme.Surface, theme.Divider)
 
     self._maid:Give(addBtn.MouseButton1Click:Connect(function()
-        createCenteredTextbox()
+        openSearch()
     end))
     self._maid:Give(closeBtn.MouseButton1Click:Connect(function() self:Destroy() end))
     self._maid:Give(minBtn.MouseButton1Click:Connect(function() self:Close() end))
