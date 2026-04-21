@@ -216,6 +216,7 @@ function Library:CreateWindow(...)
     self._origSize = (typeof(cfg.Size) == "UDim2") and cfg.Size or UDim2.fromOffset(520, 300)
     self._origPos = (typeof(cfg.Position) == "UDim2") and cfg.Position or UDim2.fromScale(0.5, 0.5)
     self._destroyCbs = {}
+    self._textboxes = {}
 
     self.Toggled = self._maid:Give(Signal.new())
     self.Closed = self._maid:Give(Signal.new())
@@ -345,7 +346,7 @@ function Library:CreateWindow(...)
         Name = "Auro@Title",
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 14, 0, 0),
-        Size = UDim2.new(1, -110, 1, 0),
+        Size = UDim2.new(1, -136, 1, 0),
         Font = Enum.Font.GothamMedium,
         Text = self._state.Title,
         TextColor3 = theme.Text,
@@ -360,14 +361,14 @@ function Library:CreateWindow(...)
         AnchorPoint = Vector2.new(1, 0.5),
         BackgroundTransparency = 1,
         Position = UDim2.new(1, -10, 0.5, 0),
-        Size = UDim2.fromOffset(96, 22),
+        Size = UDim2.fromOffset(128, 22),
     })
     child(controls, "UIListLayout", {
         Name = "Auro@Layout",
         FillDirection = Enum.FillDirection.Horizontal,
         HorizontalAlignment = Enum.HorizontalAlignment.Right,
         VerticalAlignment = Enum.VerticalAlignment.Center,
-        Padding = UDim.new(0, 12),
+        Padding = UDim.new(0, 14),
         SortOrder = Enum.SortOrder.LayoutOrder,
     })
 
@@ -383,9 +384,10 @@ function Library:CreateWindow(...)
         })
     end
 
-    local minBtn = icon("Auro@Minimize", "rbxassetid://82909496983440", 1)
-    local maxBtn = icon("Auro@Maximize", "rbxassetid://84623133872179", 2)
-    local closeBtn = icon("Auro@Close", "rbxassetid://100928939627907", 3)
+    local addBtn = icon("Auro@AddTextbox", "rbxassetid://91408778765512", 1)
+    local minBtn = icon("Auro@Minimize", "rbxassetid://82909496983440", 2)
+    local maxBtn = icon("Auro@Maximize", "rbxassetid://84623133872179", 3)
+    local closeBtn = icon("Auro@Close", "rbxassetid://100928939627907", 4)
 
     local body = child(contentGroup, "Frame", {
         Name = "Auro@Body",
@@ -457,12 +459,71 @@ function Library:CreateWindow(...)
         TextSize = 10,
     })
 
+    local function createCenteredTextbox()
+        local box = child(body, "TextBox", {
+            Name = "Auro@Textbox",
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundColor3 = theme.Surface,
+            BackgroundTransparency = 0,
+            BorderSizePixel = 0,
+            Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.new(0, 0, 0.15, 0),
+            ZIndex = 20,
+            ClearTextOnFocus = false,
+            Text = "",
+            PlaceholderText = "Type here...",
+            Font = Enum.Font.Gotham,
+            TextColor3 = theme.Text,
+            PlaceholderColor3 = theme.SubText,
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Center,
+            ClipsDescendants = true,
+        })
+        child(box, "UICorner", {
+            Name = "Auro@Corner",
+            CornerRadius = UDim.new(0, 8),
+        })
+        child(box, "UIStroke", {
+            Name = "Auro@Stroke",
+            Color = theme.Divider,
+            Thickness = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        })
+        child(box, "UIPadding", {
+            Name = "Auro@Padding",
+            PaddingLeft = UDim.new(0, 10),
+            PaddingRight = UDim.new(0, 10),
+        })
+
+        self._maid:Give(box)
+        table.insert(self._textboxes, box)
+
+        tween(box, 0.35, {
+            Size = UDim2.new(0.8, 0, 0.15, 0),
+        }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
+
+        task.defer(function()
+            if box and box.Parent then
+                pcall(function()
+                    box:CaptureFocus()
+                end)
+            end
+        end)
+
+        return box
+    end
+
+    bindHover(self._maid, addBtn, "ImageColor3", theme.SubText, theme.Text)
     bindHover(self._maid, minBtn, "ImageColor3", theme.SubText, theme.Text)
     bindHover(self._maid, maxBtn, "ImageColor3", theme.SubText, theme.Text)
     bindHover(self._maid, closeBtn, "ImageColor3", theme.SubText, theme.Danger)
     bindHover(self._maid, self._toggleBtn, "BackgroundColor3", theme.Surface, theme.Divider)
     bindHover(self._maid, self._lockBtn, "BackgroundColor3", theme.Surface, theme.Divider)
 
+    self._maid:Give(addBtn.MouseButton1Click:Connect(function()
+        createCenteredTextbox()
+    end))
     self._maid:Give(closeBtn.MouseButton1Click:Connect(function() self:Destroy() end))
     self._maid:Give(minBtn.MouseButton1Click:Connect(function() self:Close() end))
     self._maid:Give(maxBtn.MouseButton1Click:Connect(function() self:ToggleMaximize() end))
