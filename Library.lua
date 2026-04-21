@@ -4,50 +4,53 @@ Library.__index = Library
 local Window = {}
 Window.__index = Window
 
-local cloneref = cloneref or function(x) return x end
-local gethui = gethui
-local syn = syn
+local function cloneref(inst)
+    if typeof(inst) ~= "Instance" then return inst end
+    local ok, fn = pcall(function() return rawget(getfenv(0), "cloneref") end)
+    if ok and type(fn) == "function" then
+        local success, res = pcall(fn, inst)
+        if success and typeof(res) == "Instance" then
+            return res
+        end
+    end
+    return inst
+end
 
-local function getService(name)
+local function service(name)
     return cloneref(game:GetService(name))
 end
 
 local function getHui()
-    if type(gethui) == "function" then
-        local ok, res = pcall(gethui)
-        if ok and typeof(res) == "Instance" then return res end
+    local ok, fn = pcall(function() return rawget(getfenv(0), "gethui") end)
+    if ok and type(fn) == "function" then
+        local s, res = pcall(fn)
+        if s and typeof(res) == "Instance" then return res end
     end
-    local ok, cg = pcall(function() return getService("CoreGui") end)
-    if ok and typeof(cg) == "Instance" then return cg end
+    local s, cg = pcall(service, "CoreGui")
+    if s and typeof(cg) == "Instance" then return cg end
     error("[Auro]: No UI Found :(")
 end
 
-local function protectGui(gui)
-    if syn and type(syn.protect_gui) == "function" then
-        pcall(syn.protect_gui, gui)
-    end
-end
-
-local UserInputService = getService("UserInputService")
-local TweenService     = getService("TweenService")
-local RunService       = getService("RunService")
+local UIS = service("UserInputService")
+local TS  = service("TweenService")
+local RS  = service("RunService")
 
 local Maid = {}
 Maid.__index = Maid
 
 function Maid.new()
-    return setmetatable({ _tasks = {} }, Maid)
+    return setmetatable({ _t = {} }, Maid)
 end
 
 function Maid:Give(t)
-    self._tasks[#self._tasks + 1] = t
+    self._t[#self._t + 1] = t
     return t
 end
 
 function Maid:Clean()
-    for i = #self._tasks, 1, -1 do
-        local t = self._tasks[i]
-        self._tasks[i] = nil
+    for i = #self._t, 1, -1 do
+        local t = self._t[i]
+        self._t[i] = nil
         if typeof(t) == "RBXScriptConnection" then
             t:Disconnect()
         elseif typeof(t) == "Instance" then
@@ -100,6 +103,12 @@ local function new(class, props)
     return inst
 end
 
+local function child(parent, class, props)
+    local i = new(class, props)
+    i.Parent = parent
+    return i
+end
+
 local function mergeTheme(custom)
     local out = {
         Background = Color3.fromRGB(18, 18, 22),
@@ -116,10 +125,14 @@ local function mergeTheme(custom)
     return out
 end
 
-local function bindDrag(maid, handle, target, getLocked)
+local function tween(inst, t, goal)
+    return TS:Create(inst, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal)
+end
+
+local function bindDrag(maid, handle, target, isBlocked)
     local dragging, dragInput, dragStart, startPos
     maid:Give(handle.InputBegan:Connect(function(input)
-        if getLocked() then return end
+        if isBlocked() then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
@@ -140,33 +153,42 @@ local function bindDrag(maid, handle, target, getLocked)
             dragInput = input
         end
     end))
-    maid:Give(UserInputService.InputChanged:Connect(function(input)
+    maid:Give(UIS.InputChanged:Connect(function(input)
         if dragging and input == dragInput then
-            if getLocked() then
-                dragging = false
-                return
-            end
-            local delta = input.Position - dragStart
+            if isBlocked() then dragging = false return end
+            local d = input.Position - dragStart
             target.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
             )
         end
     end))
 end
 
+local function bindHover(maid, btn, prop, baseColor, hoverColor)
+    maid:Give(btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            tween(btn, 0.12, { [prop] = hoverColor }):Play()
+        end
+    end))
+    maid:Give(btn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            tween(btn, 0.12, { [prop] = baseColor }):Play()
+        end
+    end))
+end
+
 function Library.new()
-    return setmetatable({ _windows = {} }, Library)
+    return setmetatable({}, Library)
 end
 
 function Library:CreateWindow(...)
-    local args = { ... }
-    local cfg
-    if type(args[1]) == "table" then
-        cfg = args[1]
-    else
-        cfg = { Title = args[1], Footer = args[2], CornerRadius = args[3] }
-    end
+    local a = { ... }
+    local cfg = (type(a[1]) == "table") and a[1] or { Title = a[1], Footer = a[2], CornerRadius = a[3] }
 
     local theme = mergeTheme(cfg.Theme)
     local self = setmetatable({}, Window)
@@ -184,49 +206,38 @@ function Library:CreateWindow(...)
     }
     self._origSize = (typeof(cfg.Size) == "UDim2") and cfg.Size or UDim2.fromOffset(520, 300)
     self._origPos  = (typeof(cfg.Position) == "UDim2") and cfg.Position or UDim2.fromScale(0.5, 0.5)
-
-    self.Toggled     = Signal.new()
-    self.Closed      = Signal.new()
-    self.Opened      = Signal.new()
-    self.Locked      = Signal.new()
-    self.Unlocked    = Signal.new()
-    self.Maximized   = Signal.new()
-    self.Restored    = Signal.new()
-    self.Destroyed   = Signal.new()
     self._destroyCbs = {}
 
-    self._maid:Give(self.Toggled)
-    self._maid:Give(self.Closed)
-    self._maid:Give(self.Opened)
-    self._maid:Give(self.Locked)
-    self._maid:Give(self.Unlocked)
-    self._maid:Give(self.Maximized)
-    self._maid:Give(self.Restored)
-    self._maid:Give(self.Destroyed)
+    self.Toggled   = self._maid:Give(Signal.new())
+    self.Closed    = self._maid:Give(Signal.new())
+    self.Opened    = self._maid:Give(Signal.new())
+    self.Locked    = self._maid:Give(Signal.new())
+    self.Unlocked  = self._maid:Give(Signal.new())
+    self.Maximized = self._maid:Give(Signal.new())
+    self.Restored  = self._maid:Give(Signal.new())
+    self.Destroyed = self._maid:Give(Signal.new())
 
     local screen = new("ScreenGui", {
-        Name = "Aurocode_" .. tostring(math.random(100000, 999999)),
+        Name           = "Aurocode_" .. tostring(math.random(100000, 999999)),
         IgnoreGuiInset = true,
         ResetOnSpawn   = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         DisplayOrder   = 2147483647,
     })
-    protectGui(screen)
     screen.Parent = getHui()
     self._screen = screen
     self._maid:Give(screen)
 
-    self._maid:Give(RunService.Heartbeat:Connect(function()
+    self._maid:Give(RS.Heartbeat:Connect(function()
         if screen.DisplayOrder ~= 2147483647 then
             screen.DisplayOrder = 2147483647
         end
     end))
 
-    self._scale = new("UIScale", { Scale = self._state.DPIScale })
-    self._scale.Parent = screen
+    self._scale = child(screen, "UIScale", { Scale = self._state.DPIScale })
 
-    local main = new("CanvasGroup", {
-        Name = "Main",
+    local main = child(screen, "CanvasGroup", {
+        Name              = "Main",
         AnchorPoint       = Vector2.new(0.5, 0.5),
         BackgroundColor3  = theme.Background,
         BorderSizePixel   = 0,
@@ -234,86 +245,65 @@ function Library:CreateWindow(...)
         Size              = self._origSize,
         GroupTransparency = 0,
     })
-    main.Parent = screen
     self._main = main
 
-    self._rootCorner = new("UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
-    self._rootCorner.Parent = main
+    self._rootCorner = child(main, "UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
+    child(main, "UIStroke", {
+        Color = theme.Divider,
+        Thickness = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    })
 
-    do
-        local stroke = new("UIStroke", {
-            Color = theme.Divider,
-            Thickness = 1,
-            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-        })
-        stroke.Parent = main
-    end
-
-    local header = new("Frame", {
+    local header = child(main, "Frame", {
         Name = "Header",
         BackgroundColor3 = theme.Surface,
         BorderSizePixel  = 0,
         Size             = UDim2.new(1, 0, 0, 32),
     })
-    header.Parent = main
     self._header = header
+    self._headerCorner = child(header, "UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
+    child(header, "Frame", {
+        BackgroundColor3 = theme.Surface,
+        BorderSizePixel  = 0,
+        Position         = UDim2.new(0, 0, 0.5, 0),
+        Size             = UDim2.new(1, 0, 0.5, 0),
+    })
+    child(header, "Frame", {
+        BackgroundColor3 = theme.Divider,
+        BorderSizePixel  = 0,
+        Position         = UDim2.new(0, 0, 1, -1),
+        Size             = UDim2.new(1, 0, 0, 1),
+    })
 
-    self._headerCorner = new("UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
-    self._headerCorner.Parent = header
-
-    do
-        local bottom = new("Frame", {
-            BackgroundColor3 = theme.Surface,
-            BorderSizePixel  = 0,
-            Position         = UDim2.new(0, 0, 0.5, 0),
-            Size             = UDim2.new(1, 0, 0.5, 0),
-        })
-        bottom.Parent = header
-
-        local sep = new("Frame", {
-            BackgroundColor3 = theme.Divider,
-            BorderSizePixel  = 0,
-            Position         = UDim2.new(0, 0, 1, -1),
-            Size             = UDim2.new(1, 0, 0, 1),
-        })
-        sep.Parent = header
-    end
-
-    self._titleLabel = new("TextLabel", {
+    self._titleLabel = child(header, "TextLabel", {
         BackgroundTransparency = 1,
-        Position      = UDim2.new(0, 12, 0, 0),
-        Size          = UDim2.new(1, -96, 1, 0),
-        Font          = Enum.Font.GothamMedium,
-        Text          = self._state.Title,
-        TextColor3    = theme.Text,
-        TextSize      = 13,
+        Position       = UDim2.new(0, 12, 0, 0),
+        Size           = UDim2.new(1, -96, 1, 0),
+        Font           = Enum.Font.GothamMedium,
+        Text           = self._state.Title,
+        TextColor3     = theme.Text,
+        TextSize       = 13,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate   = Enum.TextTruncate.AtEnd,
     })
-    self._titleLabel.Parent = header
 
-    local controls = new("Frame", {
+    local controls = child(header, "Frame", {
         Name = "Controls",
         AnchorPoint = Vector2.new(1, 0.5),
         BackgroundTransparency = 1,
         Position = UDim2.new(1, -8, 0.5, 0),
         Size = UDim2.fromOffset(76, 20),
     })
-    controls.Parent = header
+    child(controls, "UIListLayout", {
+        FillDirection       = Enum.FillDirection.Horizontal,
+        HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        VerticalAlignment   = Enum.VerticalAlignment.Center,
+        Padding             = UDim.new(0, 6),
+        SortOrder           = Enum.SortOrder.LayoutOrder,
+    })
 
-    do
-        local layout = new("UIListLayout", {
-            FillDirection = Enum.FillDirection.Horizontal,
-            HorizontalAlignment = Enum.HorizontalAlignment.Right,
-            VerticalAlignment = Enum.VerticalAlignment.Center,
-            Padding = UDim.new(0, 6),
-            SortOrder = Enum.SortOrder.LayoutOrder,
-        })
-        layout.Parent = controls
-    end
-
-    local function makeIcon(name, asset, order)
-        local btn = new("ImageButton", {
+    local function icon(name, asset, order)
+        return child(controls, "ImageButton", {
             Name = name,
             BackgroundTransparency = 1,
             AutoButtonColor = false,
@@ -322,24 +312,21 @@ function Library:CreateWindow(...)
             Size = UDim2.fromOffset(16, 16),
             LayoutOrder = order,
         })
-        btn.Parent = controls
-        return btn
     end
 
-    local minBtn   = makeIcon("Minimize", "rbxassetid://82909496983440", 1)
-    local maxBtn   = makeIcon("Maximize", "rbxassetid://84623133872179", 2)
-    local closeBtn = makeIcon("Close",    "rbxassetid://100928939627907", 3)
+    local minBtn   = icon("Minimize", "rbxassetid://82909496983440", 1)
+    local maxBtn   = icon("Maximize", "rbxassetid://84623133872179", 2)
+    local closeBtn = icon("Close",    "rbxassetid://100928939627907", 3)
 
-    local body = new("Frame", {
+    local body = child(main, "Frame", {
         Name = "Body",
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 0, 0, 32),
         Size     = UDim2.new(1, 0, 1, -56),
     })
-    body.Parent = main
     self._body = body
 
-    local content = new("ScrollingFrame", {
+    local content = child(body, "ScrollingFrame", {
         Name = "Content",
         Active = true,
         BackgroundTransparency = 1,
@@ -352,26 +339,19 @@ function Library:CreateWindow(...)
         ScrollingDirection = Enum.ScrollingDirection.Y,
         ElasticBehavior = Enum.ElasticBehavior.Never,
     })
-    content.Parent = body
     self._content = content
+    child(content, "UIPadding", {
+        PaddingTop    = UDim.new(0, 10),
+        PaddingBottom = UDim.new(0, 10),
+        PaddingLeft   = UDim.new(0, 12),
+        PaddingRight  = UDim.new(0, 12),
+    })
+    child(content, "UIListLayout", {
+        Padding   = UDim.new(0, 8),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    })
 
-    do
-        local pad = new("UIPadding", {
-            PaddingTop    = UDim.new(0, 10),
-            PaddingBottom = UDim.new(0, 10),
-            PaddingLeft   = UDim.new(0, 12),
-            PaddingRight  = UDim.new(0, 12),
-        })
-        pad.Parent = content
-
-        local layout = new("UIListLayout", {
-            Padding   = UDim.new(0, 8),
-            SortOrder = Enum.SortOrder.LayoutOrder,
-        })
-        layout.Parent = content
-    end
-
-    local footerBar = new("Frame", {
+    local footerBar = child(main, "Frame", {
         Name = "Footer",
         AnchorPoint      = Vector2.new(0, 1),
         BackgroundColor3 = theme.Surface,
@@ -379,110 +359,69 @@ function Library:CreateWindow(...)
         Position         = UDim2.new(0, 0, 1, 0),
         Size             = UDim2.new(1, 0, 0, 24),
     })
-    footerBar.Parent = main
     self._footerBar = footerBar
-
-    self._footerCorner = new("UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
-    self._footerCorner.Parent = footerBar
-
-    do
-        local top = new("Frame", {
-            BackgroundColor3 = theme.Surface,
-            BorderSizePixel  = 0,
-            Size             = UDim2.new(1, 0, 0.5, 0),
-        })
-        top.Parent = footerBar
-
-        local sep = new("Frame", {
-            BackgroundColor3 = theme.Divider,
-            BorderSizePixel  = 0,
-            Size             = UDim2.new(1, 0, 0, 1),
-        })
-        sep.Parent = footerBar
-    end
-
-    self._footerLabel = new("TextLabel", {
-        BackgroundTransparency = 1,
-        Size        = UDim2.fromScale(1, 1),
-        Font        = Enum.Font.Gotham,
-        Text        = self._state.Footer,
-        TextColor3  = theme.SubText,
-        TextSize    = 10,
+    self._footerCorner = child(footerBar, "UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
+    child(footerBar, "Frame", {
+        BackgroundColor3 = theme.Surface,
+        BorderSizePixel  = 0,
+        Size             = UDim2.new(1, 0, 0.5, 0),
     })
-    self._footerLabel.Parent = footerBar
+    child(footerBar, "Frame", {
+        BackgroundColor3 = theme.Divider,
+        BorderSizePixel  = 0,
+        Size             = UDim2.new(1, 0, 0, 1),
+    })
+    self._footerLabel = child(footerBar, "TextLabel", {
+        BackgroundTransparency = 1,
+        Size       = UDim2.fromScale(1, 1),
+        Font       = Enum.Font.Gotham,
+        Text       = self._state.Footer,
+        TextColor3 = theme.SubText,
+        TextSize   = 10,
+    })
 
-    local cornerControls = new("Frame", {
+    local cc = child(screen, "Frame", {
         Name = "CornerControls",
         AnchorPoint = Vector2.new(0, 0),
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 10, 0, 10),
-        Size = UDim2.fromOffset(80, 66),
+        Position = UDim2.new(0, 12, 0, 12),
+        Size = UDim2.fromOffset(110, 96),
         Active = true,
     })
-    cornerControls.Parent = screen
-    self._cornerControls = cornerControls
+    self._cornerControls = cc
+    child(cc, "UIListLayout", {
+        FillDirection       = Enum.FillDirection.Vertical,
+        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+        VerticalAlignment   = Enum.VerticalAlignment.Top,
+        Padding             = UDim.new(0, 8),
+        SortOrder           = Enum.SortOrder.LayoutOrder,
+    })
 
-    do
-        local layout = new("UIListLayout", {
-            FillDirection = Enum.FillDirection.Vertical,
-            HorizontalAlignment = Enum.HorizontalAlignment.Left,
-            VerticalAlignment = Enum.VerticalAlignment.Top,
-            Padding = UDim.new(0, 6),
-            SortOrder = Enum.SortOrder.LayoutOrder,
-        })
-        layout.Parent = cornerControls
-    end
-
-    local function makeCornerBtn(name, text, order)
-        local b = new("TextButton", {
+    local function flatBtn(name, text, order)
+        return child(cc, "TextButton", {
             Name = name,
-            AutoButtonColor  = false,
-            BackgroundColor3 = theme.Surface,
-            BorderSizePixel  = 0,
-            Size = UDim2.fromOffset(80, 30),
-            Font = Enum.Font.GothamMedium,
-            Text = text,
-            TextColor3 = theme.Text,
-            TextSize = 12,
-            LayoutOrder = order,
-            Active = true,
+            AutoButtonColor        = false,
+            BackgroundTransparency = 1,
+            BorderSizePixel        = 0,
+            Size                   = UDim2.fromOffset(110, 42),
+            Font                   = Enum.Font.GothamBold,
+            Text                   = text,
+            TextColor3             = theme.Text,
+            TextSize               = 18,
+            TextXAlignment         = Enum.TextXAlignment.Left,
+            LayoutOrder            = order,
+            Active                 = true,
         })
-        local c = new("UICorner", { CornerRadius = UDim.new(0, 6) })
-        c.Parent = b
-        local s = new("UIStroke", {
-            Color = theme.Divider,
-            Thickness = 1,
-            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-        })
-        s.Parent = b
-        b.Parent = cornerControls
-        return b
     end
 
-    self._toggleBtn = makeCornerBtn("Toggle", "Toggle", 1)
-    self._lockBtn   = makeCornerBtn("Lock",   "Lock",   2)
+    self._toggleBtn = flatBtn("Toggle", "Toggle", 1)
+    self._lockBtn   = flatBtn("Lock",   "Lock",   2)
 
-    local function bindIconPress(btn, hoverColor, baseColor)
-        local info = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        self._maid:Give(btn.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement
-                or input.UserInputType == Enum.UserInputType.Touch
-                or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                TweenService:Create(btn, info, { ImageColor3 = hoverColor }):Play()
-            end
-        end))
-        self._maid:Give(btn.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement
-                or input.UserInputType == Enum.UserInputType.Touch
-                or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                TweenService:Create(btn, info, { ImageColor3 = baseColor }):Play()
-            end
-        end))
-    end
-
-    bindIconPress(minBtn,   theme.Text,   theme.SubText)
-    bindIconPress(maxBtn,   theme.Text,   theme.SubText)
-    bindIconPress(closeBtn, theme.Danger, theme.SubText)
+    bindHover(self._maid, minBtn,   "ImageColor3", theme.SubText, theme.Text)
+    bindHover(self._maid, maxBtn,   "ImageColor3", theme.SubText, theme.Text)
+    bindHover(self._maid, closeBtn, "ImageColor3", theme.SubText, theme.Danger)
+    bindHover(self._maid, self._toggleBtn, "TextColor3", theme.Text, theme.Accent)
+    bindHover(self._maid, self._lockBtn,   "TextColor3", theme.Text, theme.Accent)
 
     self._maid:Give(closeBtn.MouseButton1Click:Connect(function() self:Destroy() end))
     self._maid:Give(minBtn.MouseButton1Click:Connect(function() self:Close() end))
@@ -493,7 +432,7 @@ function Library:CreateWindow(...)
     bindDrag(self._maid, header, main, function()
         return self._state.Locked or self._state.Maximized or not self._state.Draggable
     end)
-    bindDrag(self._maid, cornerControls, cornerControls, function()
+    bindDrag(self._maid, cc, cc, function()
         return self._state.Locked
     end)
 
@@ -502,8 +441,7 @@ end
 
 function Window:SetDPIScale(n)
     n = tonumber(n) or 1
-    if n < 0.25 then n = 0.25 end
-    if n > 4 then n = 4 end
+    if n < 0.25 then n = 0.25 elseif n > 4 then n = 4 end
     self._state.DPIScale = n
     self._scale.Scale = n
     return self
@@ -537,9 +475,7 @@ end
 function Window:SetSize(sz)
     if typeof(sz) == "UDim2" then
         self._main.Size = sz
-        if not self._state.Maximized then
-            self._origSize = sz
-        end
+        if not self._state.Maximized then self._origSize = sz end
     end
     return self
 end
@@ -547,9 +483,7 @@ end
 function Window:SetPosition(p)
     if typeof(p) == "UDim2" then
         self._main.Position = p
-        if not self._state.Maximized then
-            self._origPos = p
-        end
+        if not self._state.Maximized then self._origPos = p end
     end
     return self
 end
@@ -594,16 +528,10 @@ end
 function Window:Close()
     if not self._state.Open then return self end
     self._state.Open = false
-    local tween = TweenService:Create(
-        self._main,
-        TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        { GroupTransparency = 1 }
-    )
-    tween:Play()
-    tween.Completed:Once(function()
-        if not self._state.Open then
-            self._main.Visible = false
-        end
+    local t = tween(self._main, 0.18, { GroupTransparency = 1 })
+    t:Play()
+    t.Completed:Once(function()
+        if not self._state.Open then self._main.Visible = false end
     end)
     self.Closed:Fire()
     self.Toggled:Fire(false)
@@ -615,11 +543,7 @@ function Window:Open()
     self._state.Open = true
     self._main.GroupTransparency = 1
     self._main.Visible = true
-    TweenService:Create(
-        self._main,
-        TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        { GroupTransparency = 0 }
-    ):Play()
+    tween(self._main, 0.2, { GroupTransparency = 0 }):Play()
     self.Opened:Fire()
     self.Toggled:Fire(true)
     return self
@@ -651,11 +575,10 @@ function Window:Maximize()
     self._state.Maximized = true
     self._origSize = self._main.Size
     self._origPos  = self._main.Position
-    TweenService:Create(
-        self._main,
-        TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        { Size = UDim2.new(1, -24, 1, -24), Position = UDim2.fromScale(0.5, 0.5) }
-    ):Play()
+    tween(self._main, 0.2, {
+        Size     = UDim2.new(1, -24, 1, -24),
+        Position = UDim2.fromScale(0.5, 0.5),
+    }):Play()
     self.Maximized:Fire()
     return self
 end
@@ -663,11 +586,7 @@ end
 function Window:Restore()
     if not self._state.Maximized then return self end
     self._state.Maximized = false
-    TweenService:Create(
-        self._main,
-        TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        { Size = self._origSize, Position = self._origPos }
-    ):Play()
+    tween(self._main, 0.2, { Size = self._origSize, Position = self._origPos }):Play()
     self.Restored:Fire()
     return self
 end
@@ -678,8 +597,9 @@ function Window:ToggleMaximize()
 end
 
 function Window:OnDestroy(fn)
-    if type(fn) ~= "function" then return self end
-    self._destroyCbs[#self._destroyCbs + 1] = fn
+    if type(fn) == "function" then
+        self._destroyCbs[#self._destroyCbs + 1] = fn
+    end
     return self
 end
 
@@ -690,7 +610,8 @@ function Window:Destroy()
         task.spawn(function() pcall(fn) end)
     end
     self.Destroyed:Fire()
-    self._maid:Clean()
+    tween(self._main, 0.15, { GroupTransparency = 1 }):Play()
+    task.delay(0.16, function() self._maid:Clean() end)
 end
 
 return setmetatable({}, {
