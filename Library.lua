@@ -126,7 +126,7 @@ end
 local function tween(inst, t, goal, style, dir)
     return TS:Create(
         inst,
-        TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out),
+        TweenInfo.new(t, style or Enum.EasingStyle.Cubic, dir or Enum.EasingDirection.Out),
         goal
     )
 end
@@ -286,6 +286,10 @@ function Library:CreateWindow(...)
         Size                   = self._origSize,
     })
     self._border = border
+    self._borderScale = child(border, "UIScale", {
+        Name  = "Auro@BorderScale",
+        Scale = self._state.DPIScale * 0.8,
+    })
     self._borderCorner = child(border, "UICorner", {
         Name = "Auro@Corner",
         CornerRadius = UDim.new(0, self._state.CornerRadius),
@@ -319,11 +323,25 @@ function Library:CreateWindow(...)
         CornerRadius = UDim.new(0, self._state.CornerRadius),
     })
 
+    local function setZoomScale(scale)
+        if self._uiScale then
+            self._uiScale.Scale = scale
+        end
+        if self._borderScale then
+            self._borderScale.Scale = scale
+        end
+    end
+
+    self._setZoomScale = setZoomScale
+
+    local headerHeight = 40
+    local footerHeight = 24
+
     local header = child(main, "Frame", {
         Name = "Auro@Header",
         BackgroundColor3 = theme.Surface,
         BorderSizePixel  = 0,
-        Size             = UDim2.new(1, 0, 0, 32),
+        Size             = UDim2.new(1, 0, 0, headerHeight),
     })
     self._header = header
     self._headerCorner = child(header, "UICorner", {
@@ -348,12 +366,13 @@ function Library:CreateWindow(...)
     self._titleLabel = child(header, "TextLabel", {
         Name                   = "Auro@Title",
         BackgroundTransparency = 1,
-        Position               = UDim2.new(0, 12, 0, 0),
-        Size                   = UDim2.new(1, -96, 1, 0),
+        Position               = UDim2.new(0, 14, 0, 0),
+        Size                   = UDim2.new(1, -104, 1, 0),
         Font                   = Enum.Font.GothamMedium,
         Text                   = self._state.Title,
         TextColor3             = theme.Text,
-        TextSize               = 13,
+        TextSize               = 14,
+        TextYAlignment         = Enum.TextYAlignment.Center,
         TextXAlignment         = Enum.TextXAlignment.Left,
         TextTruncate           = Enum.TextTruncate.AtEnd,
     })
@@ -362,8 +381,8 @@ function Library:CreateWindow(...)
         Name = "Auro@Controls",
         AnchorPoint            = Vector2.new(1, 0.5),
         BackgroundTransparency = 1,
-        Position               = UDim2.new(1, -8, 0.5, 0),
-        Size                   = UDim2.fromOffset(76, 20),
+        Position               = UDim2.new(1, -10, 0.5, 0),
+        Size                   = UDim2.fromOffset(84, 22),
     })
     child(controls, "UIListLayout", {
         Name                = "Auro@Layout",
@@ -381,7 +400,7 @@ function Library:CreateWindow(...)
             AutoButtonColor        = false,
             Image                  = asset,
             ImageColor3            = theme.SubText,
-            Size                   = UDim2.fromOffset(16, 16),
+            Size                   = UDim2.fromOffset(18, 18),
             LayoutOrder            = order,
         })
     end
@@ -393,8 +412,8 @@ function Library:CreateWindow(...)
     local body = child(main, "Frame", {
         Name                   = "Auro@Body",
         BackgroundTransparency = 1,
-        Position               = UDim2.new(0, 0, 0, 32),
-        Size                   = UDim2.new(1, 0, 1, -56),
+        Position               = UDim2.new(0, 0, 0, headerHeight),
+        Size                   = UDim2.new(1, 0, 1, -(headerHeight + footerHeight)),
     })
     self._body = body
 
@@ -431,7 +450,7 @@ function Library:CreateWindow(...)
         BackgroundColor3 = theme.Surface,
         BorderSizePixel  = 0,
         Position         = UDim2.new(0, 0, 1, 0),
-        Size             = UDim2.new(1, 0, 0, 24),
+        Size             = UDim2.new(1, 0, 0, footerHeight),
     })
     self._footerBar = footerBar
     self._footerCorner = child(footerBar, "UICorner", {
@@ -478,7 +497,6 @@ function Library:CreateWindow(...)
     bindDrag(self._maid, self._toggleBtn, self._toggleBtn, function() return self._state.Locked end)
     bindDrag(self._maid, self._lockBtn,   self._lockBtn,   function() return self._state.Locked end)
 
-    border.GroupTransparency = nil
     self:_playOpen(true)
 
     return self
@@ -486,19 +504,23 @@ end
 
 function Window:_playOpen(initial)
     local dpi = self._state.DPIScale
-    self._uiScale.Scale = dpi * 0.8
+    self:_setZoomScale(dpi * 0.8)
     if initial then self._main.GroupTransparency = 1 end
-    self._main.Visible  = true
+    self._main.Visible   = true
     self._border.Visible = true
-    tween(self._main,    0.22, { GroupTransparency = 0 }):Play()
-    tween(self._uiScale, 0.22, { Scale = dpi }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+    tween(self._main,    0.22, { GroupTransparency = 0 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
+    tween(self._uiScale, 0.22, { Scale = dpi }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
+    tween(self._borderScale, 0.22, { Scale = dpi }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
 end
 
 function Window:_playClose(after)
     local dpi = self._state.DPIScale
-    local t1 = tween(self._main,    0.18, { GroupTransparency = 1 })
-    local t2 = tween(self._uiScale, 0.18, { Scale = dpi * 0.8 })
-    t1:Play() t2:Play()
+    local t1 = tween(self._main, 0.18, { GroupTransparency = 1 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    local t2 = tween(self._uiScale, 0.18, { Scale = dpi * 0.8 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    local t3 = tween(self._borderScale, 0.18, { Scale = dpi * 0.8 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    t1:Play()
+    t2:Play()
+    t3:Play()
     t1.Completed:Once(function()
         if not self._state.Open then
             self._main.Visible = false
@@ -512,7 +534,8 @@ function Window:SetDPIScale(n)
     n = tonumber(n) or 1
     if n < 0.25 then n = 0.25 elseif n > 4 then n = 4 end
     self._state.DPIScale = n
-    self._uiScale.Scale = n * (self._state.Open and 1 or 0.8)
+    local s = n * (self._state.Open and 1 or 0.8)
+    self:_setZoomScale(s)
     return self
 end
 
@@ -648,7 +671,7 @@ function Window:Maximize()
     tween(self._main, 0.2, {
         Size     = UDim2.new(1, -24, 1, -24),
         Position = UDim2.fromScale(0.5, 0.5),
-    }):Play()
+    }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
     self.Maximized:Fire()
     return self
 end
@@ -656,7 +679,7 @@ end
 function Window:Restore()
     if not self._state.Maximized then return self end
     self._state.Maximized = false
-    tween(self._main, 0.2, { Size = self._origSize, Position = self._origPos }):Play()
+    tween(self._main, 0.2, { Size = self._origSize, Position = self._origPos }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
     self.Restored:Fire()
     return self
 end
