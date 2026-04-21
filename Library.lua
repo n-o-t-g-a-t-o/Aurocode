@@ -498,7 +498,7 @@ function Library:CreateWindow(...)
 
         searchClosing = false
 
-        searchOverlay = child(screen, "Frame", {
+        searchOverlay = child(contentGroup, "Frame", {
             Name = "Auro@SearchOverlay",
             BackgroundTransparency = 1,
             BackgroundColor3 = Color3.new(0, 0, 0),
