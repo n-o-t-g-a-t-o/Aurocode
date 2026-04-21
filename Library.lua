@@ -8,10 +8,8 @@ local function cloneref(inst)
     if typeof(inst) ~= "Instance" then return inst end
     local ok, fn = pcall(function() return rawget(getfenv(0), "cloneref") end)
     if ok and type(fn) == "function" then
-        local success, res = pcall(fn, inst)
-        if success and typeof(res) == "Instance" then
-            return res
-        end
+        local s, r = pcall(fn, inst)
+        if s and typeof(r) == "Instance" then return r end
     end
     return inst
 end
@@ -23,8 +21,8 @@ end
 local function getHui()
     local ok, fn = pcall(function() return rawget(getfenv(0), "gethui") end)
     if ok and type(fn) == "function" then
-        local s, res = pcall(fn)
-        if s and typeof(res) == "Instance" then return res end
+        local s, r = pcall(fn)
+        if s and typeof(r) == "Instance" then return r end
     end
     local s, cg = pcall(service, "CoreGui")
     if s and typeof(cg) == "Instance" then return cg end
@@ -125,8 +123,12 @@ local function mergeTheme(custom)
     return out
 end
 
-local function tween(inst, t, goal)
-    return TS:Create(inst, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal)
+local function tween(inst, t, goal, style, dir)
+    return TS:Create(
+        inst,
+        TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out),
+        goal
+    )
 end
 
 local function bindDrag(maid, handle, target, isBlocked)
@@ -165,21 +167,32 @@ local function bindDrag(maid, handle, target, isBlocked)
     end))
 end
 
-local function bindHover(maid, btn, prop, baseColor, hoverColor)
+local function bindHover(maid, btn, prop, base, hover)
     maid:Give(btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch
             or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            tween(btn, 0.12, { [prop] = hoverColor }):Play()
+            tween(btn, 0.12, { [prop] = hover }):Play()
         end
     end))
     maid:Give(btn.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch
             or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            tween(btn, 0.12, { [prop] = baseColor }):Play()
+            tween(btn, 0.12, { [prop] = base }):Play()
         end
     end))
+end
+
+local function syncGeometry(maid, source, target)
+    target.AnchorPoint = source.AnchorPoint
+    target.Position    = source.Position
+    target.Size        = source.Size
+    target.Visible     = source.Visible
+    maid:Give(source:GetPropertyChangedSignal("Size"):Connect(function() target.Size = source.Size end))
+    maid:Give(source:GetPropertyChangedSignal("Position"):Connect(function() target.Position = source.Position end))
+    maid:Give(source:GetPropertyChangedSignal("AnchorPoint"):Connect(function() target.AnchorPoint = source.AnchorPoint end))
+    maid:Give(source:GetPropertyChangedSignal("Visible"):Connect(function() target.Visible = source.Visible end))
 end
 
 function Library.new()
@@ -218,7 +231,7 @@ function Library:CreateWindow(...)
     self.Destroyed = self._maid:Give(Signal.new())
 
     local screen = new("ScreenGui", {
-        Name           = "Aurocode_" .. tostring(math.random(100000, 999999)),
+        Name           = "Aurocode",
         IgnoreGuiInset = true,
         ResetOnSpawn   = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
@@ -234,41 +247,98 @@ function Library:CreateWindow(...)
         end
     end))
 
-    self._scale = child(screen, "UIScale", { Scale = self._state.DPIScale })
+    local function cornerBtn(name, text, order)
+        local b = child(screen, "TextButton", {
+            Name = name,
+            AutoButtonColor  = false,
+            BackgroundColor3 = theme.Surface,
+            BorderSizePixel  = 0,
+            AnchorPoint      = Vector2.new(0, 0),
+            Size             = UDim2.fromOffset(96, 34),
+            Font             = Enum.Font.GothamBold,
+            Text             = text,
+            TextColor3       = theme.Text,
+            TextSize         = 14,
+            Active           = true,
+            LayoutOrder      = order,
+        })
+        child(b, "UICorner", { Name = "Auro@Corner", CornerRadius = UDim.new(0, 8) })
+        child(b, "UIStroke", {
+            Name = "Auro@Stroke",
+            Color = theme.Divider,
+            Thickness = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        })
+        return b
+    end
 
-    local main = child(screen, "CanvasGroup", {
-        Name              = "Main",
-        AnchorPoint       = Vector2.new(0.5, 0.5),
-        BackgroundColor3  = theme.Background,
-        BorderSizePixel   = 0,
-        Position          = self._origPos,
-        Size              = self._origSize,
-        GroupTransparency = 0,
+    self._toggleBtn = cornerBtn("Auro@Toggle", "Toggle", 1)
+    self._lockBtn   = cornerBtn("Auro@Lock",   "Lock",   2)
+    self._toggleBtn.Position = UDim2.fromOffset(12, 12)
+    self._lockBtn.Position   = UDim2.fromOffset(12, 12 + 34 + 8)
+
+    local border = child(screen, "Frame", {
+        Name                   = "Stroke@Auro",
+        AnchorPoint            = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        BorderSizePixel        = 0,
+        Position               = self._origPos,
+        Size                   = self._origSize,
     })
-    self._main = main
-
-    self._rootCorner = child(main, "UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
-    child(main, "UIStroke", {
+    self._border = border
+    self._borderCorner = child(border, "UICorner", {
+        Name = "Auro@Corner",
+        CornerRadius = UDim.new(0, self._state.CornerRadius),
+    })
+    child(border, "UIStroke", {
+        Name = "Auro@Stroke",
         Color = theme.Divider,
         Thickness = 1,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
     })
 
+    local main = child(screen, "CanvasGroup", {
+        Name              = "Main@Auro",
+        AnchorPoint       = Vector2.new(0.5, 0.5),
+        BackgroundColor3  = theme.Background,
+        BorderSizePixel   = 0,
+        Position          = self._origPos,
+        Size              = self._origSize,
+        GroupTransparency = 1,
+    })
+    self._main = main
+
+    syncGeometry(self._maid, main, border)
+
+    self._uiScale = child(main, "UIScale", {
+        Name  = "Auro@Scale",
+        Scale = self._state.DPIScale * 0.8,
+    })
+    self._rootCorner = child(main, "UICorner", {
+        Name = "Auro@Corner",
+        CornerRadius = UDim.new(0, self._state.CornerRadius),
+    })
+
     local header = child(main, "Frame", {
-        Name = "Header",
+        Name = "Auro@Header",
         BackgroundColor3 = theme.Surface,
         BorderSizePixel  = 0,
         Size             = UDim2.new(1, 0, 0, 32),
     })
     self._header = header
-    self._headerCorner = child(header, "UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
+    self._headerCorner = child(header, "UICorner", {
+        Name = "Auro@Corner",
+        CornerRadius = UDim.new(0, self._state.CornerRadius),
+    })
     child(header, "Frame", {
+        Name = "Frame@Frame",
         BackgroundColor3 = theme.Surface,
         BorderSizePixel  = 0,
         Position         = UDim2.new(0, 0, 0.5, 0),
         Size             = UDim2.new(1, 0, 0.5, 0),
     })
     child(header, "Frame", {
+        Name = "Frame@Frame_2",
         BackgroundColor3 = theme.Divider,
         BorderSizePixel  = 0,
         Position         = UDim2.new(0, 0, 1, -1),
@@ -276,25 +346,27 @@ function Library:CreateWindow(...)
     })
 
     self._titleLabel = child(header, "TextLabel", {
+        Name                   = "Auro@Title",
         BackgroundTransparency = 1,
-        Position       = UDim2.new(0, 12, 0, 0),
-        Size           = UDim2.new(1, -96, 1, 0),
-        Font           = Enum.Font.GothamMedium,
-        Text           = self._state.Title,
-        TextColor3     = theme.Text,
-        TextSize       = 13,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextTruncate   = Enum.TextTruncate.AtEnd,
+        Position               = UDim2.new(0, 12, 0, 0),
+        Size                   = UDim2.new(1, -96, 1, 0),
+        Font                   = Enum.Font.GothamMedium,
+        Text                   = self._state.Title,
+        TextColor3             = theme.Text,
+        TextSize               = 13,
+        TextXAlignment         = Enum.TextXAlignment.Left,
+        TextTruncate           = Enum.TextTruncate.AtEnd,
     })
 
     local controls = child(header, "Frame", {
-        Name = "Controls",
-        AnchorPoint = Vector2.new(1, 0.5),
+        Name = "Auro@Controls",
+        AnchorPoint            = Vector2.new(1, 0.5),
         BackgroundTransparency = 1,
-        Position = UDim2.new(1, -8, 0.5, 0),
-        Size = UDim2.fromOffset(76, 20),
+        Position               = UDim2.new(1, -8, 0.5, 0),
+        Size                   = UDim2.fromOffset(76, 20),
     })
     child(controls, "UIListLayout", {
+        Name                = "Auro@Layout",
         FillDirection       = Enum.FillDirection.Horizontal,
         HorizontalAlignment = Enum.HorizontalAlignment.Right,
         VerticalAlignment   = Enum.VerticalAlignment.Center,
@@ -306,53 +378,55 @@ function Library:CreateWindow(...)
         return child(controls, "ImageButton", {
             Name = name,
             BackgroundTransparency = 1,
-            AutoButtonColor = false,
-            Image = asset,
-            ImageColor3 = theme.SubText,
-            Size = UDim2.fromOffset(16, 16),
-            LayoutOrder = order,
+            AutoButtonColor        = false,
+            Image                  = asset,
+            ImageColor3            = theme.SubText,
+            Size                   = UDim2.fromOffset(16, 16),
+            LayoutOrder            = order,
         })
     end
 
-    local minBtn   = icon("Minimize", "rbxassetid://82909496983440", 1)
-    local maxBtn   = icon("Maximize", "rbxassetid://84623133872179", 2)
-    local closeBtn = icon("Close",    "rbxassetid://100928939627907", 3)
+    local minBtn   = icon("Auro@Minimize", "rbxassetid://82909496983440", 1)
+    local maxBtn   = icon("Auro@Maximize", "rbxassetid://84623133872179", 2)
+    local closeBtn = icon("Auro@Close",    "rbxassetid://100928939627907", 3)
 
     local body = child(main, "Frame", {
-        Name = "Body",
+        Name                   = "Auro@Body",
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 0, 0, 32),
-        Size     = UDim2.new(1, 0, 1, -56),
+        Position               = UDim2.new(0, 0, 0, 32),
+        Size                   = UDim2.new(1, 0, 1, -56),
     })
     self._body = body
 
     local content = child(body, "ScrollingFrame", {
-        Name = "Content",
-        Active = true,
+        Name                   = "Auro@Content",
+        Active                 = true,
         BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        Size = UDim2.fromScale(1, 1),
-        CanvasSize = UDim2.new(),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        ScrollBarThickness = 3,
-        ScrollBarImageColor3 = theme.Accent,
-        ScrollingDirection = Enum.ScrollingDirection.Y,
-        ElasticBehavior = Enum.ElasticBehavior.Never,
+        BorderSizePixel        = 0,
+        Size                   = UDim2.fromScale(1, 1),
+        CanvasSize             = UDim2.new(),
+        AutomaticCanvasSize    = Enum.AutomaticSize.Y,
+        ScrollBarThickness     = 3,
+        ScrollBarImageColor3   = theme.Accent,
+        ScrollingDirection     = Enum.ScrollingDirection.Y,
+        ElasticBehavior        = Enum.ElasticBehavior.Never,
     })
     self._content = content
     child(content, "UIPadding", {
+        Name          = "Auro@Padding",
         PaddingTop    = UDim.new(0, 10),
         PaddingBottom = UDim.new(0, 10),
         PaddingLeft   = UDim.new(0, 12),
         PaddingRight  = UDim.new(0, 12),
     })
     child(content, "UIListLayout", {
+        Name      = "Auro@Layout",
         Padding   = UDim.new(0, 8),
         SortOrder = Enum.SortOrder.LayoutOrder,
     })
 
     local footerBar = child(main, "Frame", {
-        Name = "Footer",
+        Name = "Auro@Footer",
         AnchorPoint      = Vector2.new(0, 1),
         BackgroundColor3 = theme.Surface,
         BorderSizePixel  = 0,
@@ -360,68 +434,37 @@ function Library:CreateWindow(...)
         Size             = UDim2.new(1, 0, 0, 24),
     })
     self._footerBar = footerBar
-    self._footerCorner = child(footerBar, "UICorner", { CornerRadius = UDim.new(0, self._state.CornerRadius) })
+    self._footerCorner = child(footerBar, "UICorner", {
+        Name = "Auro@Corner",
+        CornerRadius = UDim.new(0, self._state.CornerRadius),
+    })
     child(footerBar, "Frame", {
+        Name = "Frame@Frame",
         BackgroundColor3 = theme.Surface,
         BorderSizePixel  = 0,
         Size             = UDim2.new(1, 0, 0.5, 0),
     })
     child(footerBar, "Frame", {
+        Name = "Frame@Frame_2",
         BackgroundColor3 = theme.Divider,
         BorderSizePixel  = 0,
         Size             = UDim2.new(1, 0, 0, 1),
     })
     self._footerLabel = child(footerBar, "TextLabel", {
+        Name                   = "Auro@Label",
         BackgroundTransparency = 1,
-        Size       = UDim2.fromScale(1, 1),
-        Font       = Enum.Font.Gotham,
-        Text       = self._state.Footer,
-        TextColor3 = theme.SubText,
-        TextSize   = 10,
+        Size                   = UDim2.fromScale(1, 1),
+        Font                   = Enum.Font.Gotham,
+        Text                   = self._state.Footer,
+        TextColor3             = theme.SubText,
+        TextSize               = 10,
     })
 
-    local cc = child(screen, "Frame", {
-        Name = "CornerControls",
-        AnchorPoint = Vector2.new(0, 0),
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 12, 0, 12),
-        Size = UDim2.fromOffset(110, 96),
-        Active = true,
-    })
-    self._cornerControls = cc
-    child(cc, "UIListLayout", {
-        FillDirection       = Enum.FillDirection.Vertical,
-        HorizontalAlignment = Enum.HorizontalAlignment.Left,
-        VerticalAlignment   = Enum.VerticalAlignment.Top,
-        Padding             = UDim.new(0, 8),
-        SortOrder           = Enum.SortOrder.LayoutOrder,
-    })
-
-    local function flatBtn(name, text, order)
-        return child(cc, "TextButton", {
-            Name = name,
-            AutoButtonColor        = false,
-            BackgroundTransparency = 1,
-            BorderSizePixel        = 0,
-            Size                   = UDim2.fromOffset(110, 42),
-            Font                   = Enum.Font.GothamBold,
-            Text                   = text,
-            TextColor3             = theme.Text,
-            TextSize               = 18,
-            TextXAlignment         = Enum.TextXAlignment.Left,
-            LayoutOrder            = order,
-            Active                 = true,
-        })
-    end
-
-    self._toggleBtn = flatBtn("Toggle", "Toggle", 1)
-    self._lockBtn   = flatBtn("Lock",   "Lock",   2)
-
-    bindHover(self._maid, minBtn,   "ImageColor3", theme.SubText, theme.Text)
-    bindHover(self._maid, maxBtn,   "ImageColor3", theme.SubText, theme.Text)
-    bindHover(self._maid, closeBtn, "ImageColor3", theme.SubText, theme.Danger)
-    bindHover(self._maid, self._toggleBtn, "TextColor3", theme.Text, theme.Accent)
-    bindHover(self._maid, self._lockBtn,   "TextColor3", theme.Text, theme.Accent)
+    bindHover(self._maid, minBtn,          "ImageColor3", theme.SubText, theme.Text)
+    bindHover(self._maid, maxBtn,          "ImageColor3", theme.SubText, theme.Text)
+    bindHover(self._maid, closeBtn,        "ImageColor3", theme.SubText, theme.Danger)
+    bindHover(self._maid, self._toggleBtn, "BackgroundColor3", theme.Surface, theme.Divider)
+    bindHover(self._maid, self._lockBtn,   "BackgroundColor3", theme.Surface, theme.Divider)
 
     self._maid:Give(closeBtn.MouseButton1Click:Connect(function() self:Destroy() end))
     self._maid:Give(minBtn.MouseButton1Click:Connect(function() self:Close() end))
@@ -432,18 +475,44 @@ function Library:CreateWindow(...)
     bindDrag(self._maid, header, main, function()
         return self._state.Locked or self._state.Maximized or not self._state.Draggable
     end)
-    bindDrag(self._maid, cc, cc, function()
-        return self._state.Locked
-    end)
+    bindDrag(self._maid, self._toggleBtn, self._toggleBtn, function() return self._state.Locked end)
+    bindDrag(self._maid, self._lockBtn,   self._lockBtn,   function() return self._state.Locked end)
+
+    border.GroupTransparency = nil
+    self:_playOpen(true)
 
     return self
+end
+
+function Window:_playOpen(initial)
+    local dpi = self._state.DPIScale
+    self._uiScale.Scale = dpi * 0.8
+    if initial then self._main.GroupTransparency = 1 end
+    self._main.Visible  = true
+    self._border.Visible = true
+    tween(self._main,    0.22, { GroupTransparency = 0 }):Play()
+    tween(self._uiScale, 0.22, { Scale = dpi }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+end
+
+function Window:_playClose(after)
+    local dpi = self._state.DPIScale
+    local t1 = tween(self._main,    0.18, { GroupTransparency = 1 })
+    local t2 = tween(self._uiScale, 0.18, { Scale = dpi * 0.8 })
+    t1:Play() t2:Play()
+    t1.Completed:Once(function()
+        if not self._state.Open then
+            self._main.Visible = false
+            self._border.Visible = false
+            if type(after) == "function" then after() end
+        end
+    end)
 end
 
 function Window:SetDPIScale(n)
     n = tonumber(n) or 1
     if n < 0.25 then n = 0.25 elseif n > 4 then n = 4 end
     self._state.DPIScale = n
-    self._scale.Scale = n
+    self._uiScale.Scale = n * (self._state.Open and 1 or 0.8)
     return self
 end
 
@@ -452,9 +521,10 @@ function Window:SetCornerRadius(n)
     if n < 0 then n = 0 end
     self._state.CornerRadius = n
     local u = UDim.new(0, n)
-    self._rootCorner.CornerRadius = u
+    self._rootCorner.CornerRadius   = u
     self._headerCorner.CornerRadius = u
     self._footerCorner.CornerRadius = u
+    self._borderCorner.CornerRadius = u
     return self
 end
 
@@ -498,10 +568,16 @@ function Window:SetTheme(t)
     for k, v in pairs(t) do self._theme[k] = v end
     if t.Background then self._main.BackgroundColor3 = t.Background end
     if t.Surface then
-        self._header.BackgroundColor3 = t.Surface
+        self._header.BackgroundColor3    = t.Surface
         self._footerBar.BackgroundColor3 = t.Surface
+        self._toggleBtn.BackgroundColor3 = t.Surface
+        self._lockBtn.BackgroundColor3   = t.Surface
     end
-    if t.Text then self._titleLabel.TextColor3 = t.Text end
+    if t.Text then
+        self._titleLabel.TextColor3 = t.Text
+        self._toggleBtn.TextColor3  = t.Text
+        self._lockBtn.TextColor3    = t.Text
+    end
     if t.SubText then self._footerLabel.TextColor3 = t.SubText end
     if t.Accent then self._content.ScrollBarImageColor3 = t.Accent end
     return self
@@ -528,11 +604,7 @@ end
 function Window:Close()
     if not self._state.Open then return self end
     self._state.Open = false
-    local t = tween(self._main, 0.18, { GroupTransparency = 1 })
-    t:Play()
-    t.Completed:Once(function()
-        if not self._state.Open then self._main.Visible = false end
-    end)
+    self:_playClose()
     self.Closed:Fire()
     self.Toggled:Fire(false)
     return self
@@ -541,9 +613,7 @@ end
 function Window:Open()
     if self._state.Open then return self end
     self._state.Open = true
-    self._main.GroupTransparency = 1
-    self._main.Visible = true
-    tween(self._main, 0.2, { GroupTransparency = 0 }):Play()
+    self:_playOpen(false)
     self.Opened:Fire()
     self.Toggled:Fire(true)
     return self
@@ -610,8 +680,11 @@ function Window:Destroy()
         task.spawn(function() pcall(fn) end)
     end
     self.Destroyed:Fire()
-    tween(self._main, 0.15, { GroupTransparency = 1 }):Play()
-    task.delay(0.16, function() self._maid:Clean() end)
+    self._state.Open = false
+    self:_playClose(function() self._maid:Clean() end)
+    task.delay(0.35, function()
+        if self._maid then self._maid:Clean() end
+    end)
 end
 
 return setmetatable({}, {
