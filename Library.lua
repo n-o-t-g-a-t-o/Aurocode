@@ -30,8 +30,8 @@ local function getHui()
 end
 
 local UIS = service("UserInputService")
-local TS  = service("TweenService")
-local RS  = service("RunService")
+local TS = service("TweenService")
+local RS = service("RunService")
 
 local Maid = {}
 Maid.__index = Maid
@@ -179,14 +179,14 @@ local function bindHover(maid, btn, prop, base, hover)
         if input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch
             or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            tween(btn, 0.12, { [prop] = hover }):Play()
+            tween(btn, 0.18, { [prop] = hover }):Play()
         end
     end))
     maid:Give(btn.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch
             or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            tween(btn, 0.12, { [prop] = base }):Play()
+            tween(btn, 0.18, { [prop] = base }):Play()
         end
     end))
 end
@@ -285,15 +285,20 @@ function Library:CreateWindow(...)
     })
     self._main = main
 
-    self._borderCorner = child(main, "UICorner", {
+    self._mainCorner = child(main, "UICorner", {
         Name = "Auro@Corner",
         CornerRadius = UDim.new(0, self._state.CornerRadius),
     })
-    self._borderStroke = child(main, "UIStroke", {
+    self._mainStroke = child(main, "UIStroke", {
         Name = "Auro@Stroke",
         Color = theme.Divider,
         Thickness = 1,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    })
+
+    self._uiScale = child(main, "UIScale", {
+        Name = "Auro@Scale",
+        Scale = self._state.DPIScale * 0.8,
     })
 
     local contentGroup = child(main, "CanvasGroup", {
@@ -304,11 +309,6 @@ function Library:CreateWindow(...)
         GroupTransparency = 1,
     })
     self._contentGroup = contentGroup
-
-    self._uiScale = child(contentGroup, "UIScale", {
-        Name = "Auro@Scale",
-        Scale = self._state.DPIScale * 0.8,
-    })
 
     local headerHeight = 40
     local footerHeight = 24
@@ -343,7 +343,7 @@ function Library:CreateWindow(...)
         Name = "Auro@Title",
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 14, 0, 0),
-        Size = UDim2.new(1, -104, 1, 0),
+        Size = UDim2.new(1, -110, 1, 0),
         Font = Enum.Font.GothamMedium,
         Text = self._state.Title,
         TextColor3 = theme.Text,
@@ -358,14 +358,14 @@ function Library:CreateWindow(...)
         AnchorPoint = Vector2.new(1, 0.5),
         BackgroundTransparency = 1,
         Position = UDim2.new(1, -10, 0.5, 0),
-        Size = UDim2.fromOffset(84, 22),
+        Size = UDim2.fromOffset(90, 22),
     })
     child(controls, "UIListLayout", {
         Name = "Auro@Layout",
         FillDirection = Enum.FillDirection.Horizontal,
         HorizontalAlignment = Enum.HorizontalAlignment.Right,
         VerticalAlignment = Enum.VerticalAlignment.Center,
-        Padding = UDim.new(0, 6),
+        Padding = UDim.new(0, 9),
         SortOrder = Enum.SortOrder.LayoutOrder,
     })
 
@@ -516,7 +516,7 @@ function Window:SetCornerRadius(n)
     if n < 0 then n = 0 end
     self._state.CornerRadius = n
     local u = UDim.new(0, n)
-    self._borderCorner.CornerRadius = u
+    self._mainCorner.CornerRadius = u
     self._headerCorner.CornerRadius = u
     self._footerCorner.CornerRadius = u
     return self
@@ -560,12 +560,17 @@ end
 function Window:SetTheme(t)
     if type(t) ~= "table" then return self end
     for k, v in pairs(t) do self._theme[k] = v end
-    if t.Background then self._main.BackgroundColor3 = t.Background end
+    if t.Background then
+        self._main.BackgroundColor3 = t.Background
+    end
     if t.Surface then
         self._header.BackgroundColor3 = t.Surface
         self._footerBar.BackgroundColor3 = t.Surface
         self._toggleBtn.BackgroundColor3 = t.Surface
         self._lockBtn.BackgroundColor3 = t.Surface
+    end
+    if t.Divider then
+        self._mainStroke.Color = t.Divider
     end
     if t.Text then
         self._titleLabel.TextColor3 = t.Text
@@ -676,7 +681,7 @@ function Window:Destroy()
     self.Destroyed:Fire()
     self._state.Open = false
     self:_playClose(function() self._maid:Clean() end)
-    task.delay(0.45, function()
+    task.delay(0.55, function()
         if self._maid then self._maid:Clean() end
     end)
 end
