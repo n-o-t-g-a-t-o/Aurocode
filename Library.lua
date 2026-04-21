@@ -194,6 +194,37 @@ end
 
 local Notify = {}
 Notify.__index = Notify
+Notify.NotifyDirection = ""
+
+local function normalizeNotifyDirection(dir)
+    dir = tostring(dir or ""):lower()
+
+    if dir == "rb" or dir == "rightbelow" then
+        return "rb"
+    elseif dir == "ru" or dir == "rightup" or dir == "rightabove" then
+        return "ru"
+    elseif dir == "lb" or dir == "leftbelow" then
+        return "lb"
+    elseif dir == "lu" or dir == "leftup" or dir == "leftabove" then
+        return "lu"
+    end
+
+    return "ru"
+end
+
+local function getDirectionData(dir)
+    dir = normalizeNotifyDirection(dir)
+
+    if dir == "rb" then
+        return Vector2.new(1, 1), UDim2.new(1, -16, 1, -16), UDim2.new(1, 380, 1, -16)
+    elseif dir == "ru" then
+        return Vector2.new(1, 0), UDim2.new(1, -16, 0, 16), UDim2.new(1, 380, 0, 16)
+    elseif dir == "lb" then
+        return Vector2.new(0, 1), UDim2.new(0, 16, 1, -16), UDim2.new(-1, -380, 1, -16)
+    else
+        return Vector2.new(0, 0), UDim2.new(0, 16, 0, 16), UDim2.new(-1, -380, 0, 16)
+    end
+end
 
 local function createNotify(title, description, duration, hasTimeIndicator)
     local theme = mergeTheme()
@@ -207,6 +238,7 @@ local function createNotify(title, description, duration, hasTimeIndicator)
     self._duration = duration
     self._hasTimeIndicator = hasTimeIndicator
     self._indicator = 0
+    self.NotifyDirection = normalizeNotifyDirection(Notify.NotifyDirection)
 
     local gui = new("ScreenGui", {
         Name = "Aurocode_Notify_" .. Http:GenerateGUID(false),
@@ -219,23 +251,32 @@ local function createNotify(title, description, duration, hasTimeIndicator)
     self._gui = gui
     self._maid:Give(gui)
 
-    local root = child(gui, "CanvasGroup", {
+    local directionAnchor, directionPos, directionOffPos = getDirectionData(self.NotifyDirection)
+    self._directionAnchor = directionAnchor
+    self._directionPos = directionPos
+    self._directionOffPos = directionOffPos
+
+    local root = new("CanvasGroup", {
         Name = "Auro@NotifyRoot",
-        AnchorPoint = Vector2.new(1, 0),
+        AnchorPoint = directionAnchor,
         BackgroundColor3 = theme.Background,
         BackgroundTransparency = 0,
         BorderSizePixel = 0,
         ClipsDescendants = true,
-        Position = UDim2.new(1, 380, 0, 16),
-        Size = UDim2.fromOffset(360, 92),
+        Position = directionOffPos,
+        Size = UDim2.fromOffset(300, 78),
         GroupTransparency = 1,
     })
     self._root = root
+    root.Parent = gui
+
+    self._maid:Give(root)
 
     child(root, "UICorner", {
         Name = "Auro@Corner",
-        CornerRadius = UDim.new(0, 12),
+        CornerRadius = UDim.new(0, 10),
     })
+
     child(root, "UIStroke", {
         Name = "Auro@Stroke",
         Color = theme.Divider,
@@ -248,18 +289,18 @@ local function createNotify(title, description, duration, hasTimeIndicator)
         BackgroundColor3 = theme.Accent,
         BorderSizePixel = 0,
         Position = UDim2.fromOffset(0, 0),
-        Size = UDim2.new(0, 4, 1, 0),
+        Size = UDim2.new(0, 3, 1, 0),
     })
 
     local titleLabel = child(root, "TextLabel", {
         Name = "Auro@Title",
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(14, 10),
-        Size = UDim2.new(1, -28, 0, 18),
+        Position = UDim2.fromOffset(12, 8),
+        Size = UDim2.new(1, -24, 0, 16),
         Font = Enum.Font.GothamBold,
         Text = tostring(title or "Aurocode Says:"),
         TextColor3 = theme.Text,
-        TextSize = 14,
+        TextSize = 13,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Center,
         TextTruncate = Enum.TextTruncate.AtEnd,
@@ -269,12 +310,12 @@ local function createNotify(title, description, duration, hasTimeIndicator)
     local descLabel = child(root, "TextLabel", {
         Name = "Auro@Description",
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(14, 30),
-        Size = UDim2.new(1, -28, 0, 34),
+        Position = UDim2.fromOffset(12, 25),
+        Size = UDim2.new(1, -24, 0, 28),
         Font = Enum.Font.Gotham,
         Text = tostring(description or "Description"),
         TextColor3 = theme.SubText,
-        TextSize = 12,
+        TextSize = 11,
         TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Top,
@@ -286,8 +327,8 @@ local function createNotify(title, description, duration, hasTimeIndicator)
         Name = "Auro@ProgressBack",
         BackgroundColor3 = theme.Divider,
         BorderSizePixel = 0,
-        Position = UDim2.new(0, 14, 1, -12),
-        Size = UDim2.new(1, -28, 0, 4),
+        Position = UDim2.new(0, 12, 1, -9),
+        Size = UDim2.new(1, -24, 0, 3),
         Visible = hasTimeIndicator,
     })
     self._progressBack = progressBack
@@ -310,7 +351,17 @@ local function createNotify(title, description, duration, hasTimeIndicator)
         CornerRadius = UDim.new(1, 0),
     })
 
-    self:_playOpen()
+    local function playOpen()
+        if not self._root or not self._root.Parent then return end
+        self._root.Visible = true
+        self._root.GroupTransparency = 1
+        self._root.Position = self._directionOffPos
+
+        tween(self._root, 0.28, {
+            GroupTransparency = 0,
+            Position = self._directionPos,
+        }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
+    end
 
     if duration > 0 then
         if hasTimeIndicator then
@@ -327,86 +378,76 @@ local function createNotify(title, description, duration, hasTimeIndicator)
         end)
     end
 
-    return self
-end
+    function self:SetTimeIndicator(num)
+        if self._dead or not self._hasTimeIndicator or not self._progressFill then
+            return self
+        end
 
-function Notify:_playOpen()
-    if not self._root or not self._root.Parent then return end
-    local root = self._root
-    root.Visible = true
-    root.GroupTransparency = 1
-    root.Position = UDim2.new(1, 380, 0, 16)
-    tween(root, 0.28, {
-        GroupTransparency = 0,
-        Position = UDim2.new(1, -16, 0, 16),
-    }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
-end
+        local pct = math.clamp(tonumber(num) or 0, 0, 100)
+        self._indicator = pct
 
-function Notify:SetTimeIndicator(num)
-    if self._dead or not self._hasTimeIndicator or not self._progressFill then
+        if self._progressTween then
+            pcall(function()
+                self._progressTween:Cancel()
+            end)
+            self._progressTween = nil
+        end
+
+        self._progressFill.Size = UDim2.new(pct / 100, 0, 1, 0)
+
+        if pct >= 100 then
+            self:Dissmiss()
+        end
+
         return self
     end
 
-    local pct = math.clamp(tonumber(num) or 0, 0, 100)
-    self._indicator = pct
+    function self:Dissmiss()
+        if self._dead then return self end
+        self._dead = true
 
-    if self._progressTween then
-        pcall(function()
-            self._progressTween:Cancel()
-        end)
-        self._progressTween = nil
-    end
-
-    self._progressFill.Size = UDim2.new(pct / 100, 0, 1, 0)
-
-    if pct >= 100 then
-        self:Dissmiss()
-    end
-
-    return self
-end
-
-function Notify:Dissmiss()
-    if self._dead then return self end
-    self._dead = true
-
-    if self._progressTween then
-        pcall(function()
-            self._progressTween:Cancel()
-        end)
-        self._progressTween = nil
-    end
-
-    if not self._root or not self._root.Parent then
-        if self._maid then
-            self._maid:Clean()
+        if self._progressTween then
+            pcall(function()
+                self._progressTween:Cancel()
+            end)
+            self._progressTween = nil
         end
+
+        if not self._root or not self._root.Parent then
+            if self._maid then
+                self._maid:Clean()
+            end
+            return self
+        end
+
+        local t = tween(self._root, 0.22, {
+            GroupTransparency = 1,
+            Position = self._directionOffPos,
+        }, Enum.EasingStyle.Cubic, Enum.EasingDirection.In)
+
+        t:Play()
+        t.Completed:Once(function()
+            if self._maid then
+                self._maid:Clean()
+            end
+        end)
+
         return self
     end
 
-    local t = tween(self._root, 0.22, {
-        GroupTransparency = 1,
-        Position = UDim2.new(1, 380, 0, 16),
-    }, Enum.EasingStyle.Cubic, Enum.EasingDirection.In)
+    self.Dismiss = self.Dissmiss
 
-    t:Play()
-    t.Completed:Once(function()
-        if self._maid then
-            self._maid:Clean()
-        end
-    end)
+    function self:Destroy()
+        return self:Dissmiss()
+    end
+
+    function self:GetRoot()
+        return self._root
+    end
+
+    playOpen()
 
     return self
-end
-
-Notify.Dismiss = Notify.Dissmiss
-
-function Notify:Destroy()
-    return self:Dissmiss()
-end
-
-function Notify:GetRoot()
-    return self._root
 end
 
 function Library:Notify(title, description, duration, hasTimeIndicator)
