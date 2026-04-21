@@ -271,12 +271,13 @@ function Library:CreateWindow(...)
     self._toggleBtn = cornerBtn("Auro@Toggle", "Toggle", 1)
     self._lockBtn = cornerBtn("Auro@Lock", "Lock", 2)
     self._toggleBtn.Position = UDim2.fromOffset(12, 12)
-    self._lockBtn.Position = UDim2.fromOffset(12, 12 + 34 + 8)
+    self._lockBtn.Position = UDim2.fromOffset(12, 54)
 
     local main = child(screen, "Frame", {
         Name = "Main@Auro",
         AnchorPoint = Vector2.new(0.5, 0.5),
         BackgroundColor3 = theme.Background,
+        BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Position = self._origPos,
         Size = self._origSize,
@@ -293,6 +294,7 @@ function Library:CreateWindow(...)
         Name = "Auro@Stroke",
         Color = theme.Divider,
         Thickness = 1,
+        Transparency = 1,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
     })
 
@@ -358,14 +360,14 @@ function Library:CreateWindow(...)
         AnchorPoint = Vector2.new(1, 0.5),
         BackgroundTransparency = 1,
         Position = UDim2.new(1, -10, 0.5, 0),
-        Size = UDim2.fromOffset(90, 22),
+        Size = UDim2.fromOffset(96, 22),
     })
     child(controls, "UIListLayout", {
         Name = "Auro@Layout",
         FillDirection = Enum.FillDirection.Horizontal,
         HorizontalAlignment = Enum.HorizontalAlignment.Right,
         VerticalAlignment = Enum.VerticalAlignment.Center,
-        Padding = UDim.new(0, 9),
+        Padding = UDim.new(0, 12),
         SortOrder = Enum.SortOrder.LayoutOrder,
     })
 
@@ -482,19 +484,27 @@ function Window:_playOpen(initial)
     local dpi = self._state.DPIScale
     self._uiScale.Scale = dpi * 0.8
     if initial then
+        self._main.BackgroundTransparency = 1
+        self._mainStroke.Transparency = 1
         self._contentGroup.GroupTransparency = 1
     end
     self._main.Visible = true
+    tween(self._main, 0.37, { BackgroundTransparency = 0 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
+    tween(self._mainStroke, 0.37, { Transparency = 0 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
     tween(self._contentGroup, 0.37, { GroupTransparency = 0 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
     tween(self._uiScale, 0.37, { Scale = dpi }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out):Play()
 end
 
 function Window:_playClose(after)
     local dpi = self._state.DPIScale
-    local t1 = tween(self._contentGroup, 0.33, { GroupTransparency = 1 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
-    local t2 = tween(self._uiScale, 0.33, { Scale = dpi * 0.8 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    local t1 = tween(self._main, 0.33, { BackgroundTransparency = 1 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    local t2 = tween(self._mainStroke, 0.33, { Transparency = 1 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    local t3 = tween(self._contentGroup, 0.33, { GroupTransparency = 1 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    local t4 = tween(self._uiScale, 0.33, { Scale = dpi * 0.8 }, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
     t1:Play()
     t2:Play()
+    t3:Play()
+    t4:Play()
     t1.Completed:Once(function()
         if not self._state.Open then
             self._main.Visible = false
@@ -560,18 +570,14 @@ end
 function Window:SetTheme(t)
     if type(t) ~= "table" then return self end
     for k, v in pairs(t) do self._theme[k] = v end
-    if t.Background then
-        self._main.BackgroundColor3 = t.Background
-    end
+    if t.Background then self._main.BackgroundColor3 = t.Background end
     if t.Surface then
         self._header.BackgroundColor3 = t.Surface
         self._footerBar.BackgroundColor3 = t.Surface
         self._toggleBtn.BackgroundColor3 = t.Surface
         self._lockBtn.BackgroundColor3 = t.Surface
     end
-    if t.Divider then
-        self._mainStroke.Color = t.Divider
-    end
+    if t.Divider then self._mainStroke.Color = t.Divider end
     if t.Text then
         self._titleLabel.TextColor3 = t.Text
         self._toggleBtn.TextColor3 = t.Text
