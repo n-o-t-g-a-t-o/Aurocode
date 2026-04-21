@@ -7,10 +7,19 @@ Window.__index = Window
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
+
+local MAX_DISPLAY_ORDER = 2147483647
+
+local ICONS = {
+    Maximize = "rbxassetid://84623133872179",
+    Close    = "rbxassetid://100928939627907",
+    Minimize = "rbxassetid://82909496983440",
+}
 
 local Maid = {}
 Maid.__index = Maid
@@ -19,9 +28,9 @@ function Maid.new()
     return setmetatable({ _tasks = {} }, Maid)
 end
 
-function Maid:Give(task)
-    self._tasks[#self._tasks + 1] = task
-    return task
+function Maid:Give(t)
+    self._tasks[#self._tasks + 1] = t
+    return t
 end
 
 function Maid:Clean()
@@ -44,20 +53,17 @@ local Signal = {}
 Signal.__index = Signal
 
 function Signal.new()
-    return setmetatable({ _handlers = {}, _alive = true }, Signal)
+    return setmetatable({ _h = {}, _alive = true }, Signal)
 end
 
 function Signal:Connect(fn)
     if not self._alive then return { Disconnect = function() end } end
-    local handlers = self._handlers
-    handlers[#handlers + 1] = fn
+    local h = self._h
+    h[#h + 1] = fn
     return {
         Disconnect = function()
-            for i, h in ipairs(handlers) do
-                if h == fn then
-                    table.remove(handlers, i)
-                    break
-                end
+            for i, v in ipairs(h) do
+                if v == fn then table.remove(h, i) break end
             end
         end,
     }
@@ -65,61 +71,35 @@ end
 
 function Signal:Fire(...)
     if not self._alive then return end
-    for _, h in ipairs(self._handlers) do
-        task.spawn(h, ...)
+    for _, fn in ipairs(self._h) do
+        task.spawn(fn, ...)
     end
 end
 
 function Signal:Destroy()
     self._alive = false
-    table.clear(self._handlers)
+    table.clear(self._h)
 end
 
 local DefaultTheme = {
     Background = Color3.fromRGB(18, 18, 22),
-    Surface = Color3.fromRGB(26, 26, 32),
-    Accent = Color3.fromRGB(120, 90, 255),
-    Text = Color3.fromRGB(235, 235, 240),
-    SubText = Color3.fromRGB(150, 150, 160),
-    Divider = Color3.fromRGB(40, 40, 48),
-    Danger = Color3.fromRGB(220, 60, 80),
+    Surface    = Color3.fromRGB(26, 26, 32),
+    Accent     = Color3.fromRGB(120, 90, 255),
+    Text       = Color3.fromRGB(235, 235, 240),
+    SubText    = Color3.fromRGB(150, 150, 160),
+    Divider    = Color3.fromRGB(40, 40, 48),
+    Danger     = Color3.fromRGB(220, 60, 80),
 }
 
 local function new(class, props, children)
     local inst = Instance.new(class)
     if props then
-        for k, v in pairs(props) do
-            inst[k] = v
-        end
+        for k, v in pairs(props) do inst[k] = v end
     end
     if children then
-        for _, c in ipairs(children) do
-            c.Parent = inst
-        end
+        for _, c in ipairs(children) do c.Parent = inst end
     end
     return inst
-end
-
-local function mount(gui)
-    gui.Name = "Aurocode_" .. tostring(math.random(100000, 999999))
-    gui.IgnoreGuiInset = true
-    gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.DisplayOrder = 2147483647
-
-    local parented = pcall(function()
-        if typeof(gethui) == "function" then
-            gui.Parent = gethui()
-        elseif syn and typeof(syn.protect_gui) == "function" then
-            syn.protect_gui(gui)
-            gui.Parent = CoreGui
-        else
-            gui.Parent = CoreGui
-        end
-    end)
-    if not parented or not gui.Parent then
-        gui.Parent = PlayerGui or CoreGui
-    end
 end
 
 local function mergeTheme(custom)
@@ -131,90 +111,129 @@ local function mergeTheme(custom)
     return out
 end
 
+local function parentOnTop(gui)
+    gui.DisplayOrder = MAX_DISPLAY_ORDER
+    gui.IgnoreGuiInset = true
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    local ok = pcall(function()
+        if typeof(gethui) == "function" then
+            gui.Parent = gethui()
+        elseif syn and typeof(syn.protect_gui) == "function" then
+            syn.protect_gui(gui)
+            gui.Parent = CoreGui
+        else
+            gui.Parent = CoreGui
+        end
+    end)
+    if not ok or not gui.Parent then
+        gui.Parent = PlayerGui or CoreGui
+    end
+end
+
 function Library.new()
     return setmetatable({ _windows = {} }, Library)
 end
 
 function Library:CreateWindow(...)
     local args = { ... }
-    local config
+    local cfg
     if type(args[1]) == "table" then
-        config = args[1]
+        cfg = args[1]
     else
-        config = {
-            Title = args[1],
-            Footer = args[2],
+        cfg = {
+            Title        = args[1],
+            Footer       = args[2],
             CornerRadius = args[3],
         }
     end
 
-    local title = tostring(config.Title or "Aurocode")
-    local footer = tostring(config.Footer or "v1.0.0")
-    local corner = tonumber(config.CornerRadius) or 10
-    local dpi = tonumber(config.DPIScale) or 1
-    local size = (typeof(config.Size) == "UDim2") and config.Size or UDim2.fromOffset(320, 420)
-    local position = (typeof(config.Position) == "UDim2") and config.Position or UDim2.fromScale(0.5, 0.5)
-    local draggable = (config.Draggable ~= false)
-    local theme = mergeTheme(config.Theme)
+    local title  = tostring(cfg.Title  or "Aurocode")
+    local footer = tostring(cfg.Footer or "v1.0.0")
+    local corner = tonumber(cfg.CornerRadius) or 10
+    local dpi    = tonumber(cfg.DPIScale) or 1
+    local size   = (typeof(cfg.Size) == "UDim2") and cfg.Size or UDim2.fromOffset(520, 300)
+    local pos    = (typeof(cfg.Position) == "UDim2") and cfg.Position or UDim2.fromScale(0.5, 0.5)
+    local draggable = (cfg.Draggable ~= false)
+    local theme  = mergeTheme(cfg.Theme)
 
     local self = setmetatable({}, Window)
-    self._maid = Maid.new()
+    self._maid  = Maid.new()
     self._theme = theme
     self._state = {
-        Title = title,
-        Footer = footer,
-        Open = true,
-        DPIScale = dpi,
+        Title        = title,
+        Footer       = footer,
+        Open         = true,
+        Locked       = false,
+        Maximized    = false,
+        DPIScale     = dpi,
         CornerRadius = corner,
-        Draggable = draggable,
+        Draggable    = draggable,
     }
+    self._origSize = size
+    self._origPos  = pos
 
-    self.Toggled = Signal.new()
-    self.Closed = Signal.new()
-    self.Opened = Signal.new()
+    self.Toggled   = Signal.new()
+    self.Closed    = Signal.new()
+    self.Opened    = Signal.new()
+    self.Locked    = Signal.new()
+    self.Unlocked  = Signal.new()
+    self.Maximized = Signal.new()
+    self.Restored  = Signal.new()
     self.Destroyed = Signal.new()
     self._maid:Give(self.Toggled)
     self._maid:Give(self.Closed)
     self._maid:Give(self.Opened)
+    self._maid:Give(self.Locked)
+    self._maid:Give(self.Unlocked)
+    self._maid:Give(self.Maximized)
+    self._maid:Give(self.Restored)
     self._maid:Give(self.Destroyed)
 
-    local screen = new("ScreenGui")
-    mount(screen)
+    local screen = new("ScreenGui", { Name = "Aurocode_" .. tostring(math.random(100000, 999999)) })
+    parentOnTop(screen)
     self._screen = screen
     self._maid:Give(screen)
 
-    local scale = new("UIScale", { Scale = dpi })
-    scale.Parent = screen
-    self._scale = scale
+    self._maid:Give(RunService.Heartbeat:Connect(function()
+        if screen.DisplayOrder ~= MAX_DISPLAY_ORDER then
+            screen.DisplayOrder = MAX_DISPLAY_ORDER
+        end
+    end))
 
-    local root = new("Frame", {
-        Name = "Root",
+    local rootScale = new("UIScale", { Scale = dpi })
+    rootScale.Parent = screen
+    self._scale = rootScale
+
+    local main = new("CanvasGroup", {
+        Name = "Main",
         AnchorPoint = Vector2.new(0.5, 0.5),
         BackgroundColor3 = theme.Background,
         BorderSizePixel = 0,
-        Position = position,
+        Position = pos,
         Size = size,
-        ClipsDescendants = true,
+        GroupTransparency = 0,
     })
-    root.Parent = screen
-    self._root = root
+    main.Parent = screen
+    self._main = main
 
     self._rootCorner = new("UICorner", { CornerRadius = UDim.new(0, corner) })
-    self._rootCorner.Parent = root
+    self._rootCorner.Parent = main
 
     new("UIStroke", {
         Color = theme.Divider,
         Thickness = 1,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-    }).Parent = root
+    }).Parent = main
 
     local header = new("Frame", {
         Name = "Header",
         BackgroundColor3 = theme.Surface,
         BorderSizePixel = 0,
-        Size = UDim2.new(1, 0, 0, 44),
+        Size = UDim2.new(1, 0, 0, 36),
     })
-    header.Parent = root
+    header.Parent = main
     self._header = header
 
     self._headerCorner = new("UICorner", { CornerRadius = UDim.new(0, corner) })
@@ -236,47 +255,60 @@ function Library:CreateWindow(...)
 
     local titleLabel = new("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 16, 0, 0),
-        Size = UDim2.new(1, -104, 1, 0),
+        Position = UDim2.new(0, 14, 0, 0),
+        Size = UDim2.new(1, -128, 1, 0),
         Font = Enum.Font.GothamMedium,
         Text = title,
         TextColor3 = theme.Text,
-        TextSize = 15,
+        TextSize = 14,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     })
     titleLabel.Parent = header
     self._titleLabel = titleLabel
 
-    local function makeIconButton(name, char, xOffset)
-        local btn = new("TextButton", {
+    local btnHolder = new("Frame", {
+        Name = "Controls",
+        AnchorPoint = Vector2.new(1, 0.5),
+        BackgroundTransparency = 1,
+        Position = UDim2.new(1, -8, 0.5, 0),
+        Size = UDim2.fromOffset(108, 28),
+    })
+    btnHolder.Parent = header
+
+    new("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        Padding = UDim.new(0, 6),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }).Parent = btnHolder
+
+    local function makeIcon(name, asset, order, tint)
+        local btn = new("ImageButton", {
             Name = name,
-            AnchorPoint = Vector2.new(1, 0.5),
+            BackgroundTransparency = 1,
             AutoButtonColor = false,
-            BackgroundColor3 = theme.Divider,
-            BorderSizePixel = 0,
-            Position = UDim2.new(1, xOffset, 0.5, 0),
-            Size = UDim2.fromOffset(32, 32),
-            Font = Enum.Font.GothamBold,
-            Text = char,
-            TextColor3 = theme.Text,
-            TextSize = 18,
+            Image = asset,
+            ImageColor3 = tint or theme.Text,
+            Size = UDim2.fromOffset(22, 22),
+            LayoutOrder = order,
         })
-        new("UICorner", { CornerRadius = UDim.new(1, 0) }).Parent = btn
-        btn.Parent = header
+        btn.Parent = btnHolder
         return btn
     end
 
-    local closeBtn = makeIconButton("Close", "×", -10)
-    local toggleBtn = makeIconButton("Minimize", "–", -50)
+    local minBtn   = makeIcon("Minimize", ICONS.Minimize, 1, theme.SubText)
+    local maxBtn   = makeIcon("Maximize", ICONS.Maximize, 2, theme.SubText)
+    local closeBtn = makeIcon("Close",    ICONS.Close,    3, theme.SubText)
 
     local body = new("Frame", {
         Name = "Body",
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 0, 0, 44),
-        Size = UDim2.new(1, 0, 1, -72),
+        Position = UDim2.new(0, 0, 0, 36),
+        Size = UDim2.new(1, 0, 1, -60),
     })
-    body.Parent = root
+    body.Parent = main
     self._body = body
 
     local content = new("ScrollingFrame", {
@@ -296,10 +328,10 @@ function Library:CreateWindow(...)
     self._content = content
 
     new("UIPadding", {
-        PaddingTop = UDim.new(0, 12),
-        PaddingBottom = UDim.new(0, 12),
-        PaddingLeft = UDim.new(0, 12),
-        PaddingRight = UDim.new(0, 12),
+        PaddingTop    = UDim.new(0, 10),
+        PaddingBottom = UDim.new(0, 10),
+        PaddingLeft   = UDim.new(0, 12),
+        PaddingRight  = UDim.new(0, 12),
     }).Parent = content
 
     new("UIListLayout", {
@@ -313,10 +345,9 @@ function Library:CreateWindow(...)
         BackgroundColor3 = theme.Surface,
         BorderSizePixel = 0,
         Position = UDim2.new(0, 0, 1, 0),
-        Size = UDim2.new(1, 0, 0, 28),
+        Size = UDim2.new(1, 0, 0, 24),
     })
-    footerBar.Parent = root
-    self._footerBar = footerBar
+    footerBar.Parent = main
 
     self._footerCorner = new("UICorner", { CornerRadius = UDim.new(0, corner) })
     self._footerCorner.Parent = footerBar
@@ -339,48 +370,112 @@ function Library:CreateWindow(...)
         Font = Enum.Font.Gotham,
         Text = footer,
         TextColor3 = theme.SubText,
-        TextSize = 11,
+        TextSize = 10,
     })
     footerLabel.Parent = footerBar
     self._footerLabel = footerLabel
+    self._footerBar = footerBar
 
-    self._maid:Give(closeBtn.MouseButton1Click:Connect(function()
-        self:Destroy()
-    end))
-    self._maid:Give(toggleBtn.MouseButton1Click:Connect(function()
-        self:Toggle()
-    end))
+    local corner2 = new("Frame", {
+        Name = "CornerControls",
+        AnchorPoint = Vector2.new(0, 0),
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 10, 0, 10),
+        Size = UDim2.fromOffset(160, 30),
+    })
+    corner2.Parent = screen
+    self._cornerControls = corner2
 
-    local function bindPress(btn, hoverColor)
-        local base = btn.BackgroundColor3
-        local info = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    new("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        Padding = UDim.new(0, 6),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }).Parent = corner2
+
+    local function makeCornerBtn(name, text, order)
+        local b = new("TextButton", {
+            Name = name,
+            AutoButtonColor = false,
+            BackgroundColor3 = theme.Surface,
+            BorderSizePixel = 0,
+            Size = UDim2.fromOffset(74, 28),
+            Font = Enum.Font.GothamMedium,
+            Text = text,
+            TextColor3 = theme.Text,
+            TextSize = 12,
+            LayoutOrder = order,
+        })
+        new("UICorner", { CornerRadius = UDim.new(0, 6) }).Parent = b
+        new("UIStroke", {
+            Color = theme.Divider,
+            Thickness = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        }).Parent = b
+        b.Parent = corner2
+        return b
+    end
+
+    local toggleBtn = makeCornerBtn("Toggle", "Toggle", 1)
+    local lockBtn   = makeCornerBtn("Lock", "Lock", 2)
+    self._toggleBtn = toggleBtn
+    self._lockBtn = lockBtn
+
+    local function fadeIcon(btn, target)
+        TweenService:Create(
+            btn,
+            TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            { ImageColor3 = target }
+        ):Play()
+    end
+
+    local function bindIconPress(btn, hoverColor, baseColor)
         self._maid:Give(btn.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement then
-                TweenService:Create(btn, info, { BackgroundColor3 = hoverColor }):Play()
-            elseif input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                TweenService:Create(btn, info, { BackgroundColor3 = hoverColor }):Play()
+            if input.UserInputType == Enum.UserInputType.MouseMovement
+                or input.UserInputType == Enum.UserInputType.Touch
+                or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                fadeIcon(btn, hoverColor)
             end
         end))
         self._maid:Give(btn.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseMovement
                 or input.UserInputType == Enum.UserInputType.Touch
                 or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                TweenService:Create(btn, info, { BackgroundColor3 = base }):Play()
+                fadeIcon(btn, baseColor)
             end
         end))
     end
-    bindPress(closeBtn, theme.Danger)
-    bindPress(toggleBtn, theme.Accent)
+
+    bindIconPress(minBtn,   theme.Text,   theme.SubText)
+    bindIconPress(maxBtn,   theme.Text,   theme.SubText)
+    bindIconPress(closeBtn, theme.Danger, theme.SubText)
+
+    self._maid:Give(closeBtn.MouseButton1Click:Connect(function()
+        self:Destroy()
+    end))
+    self._maid:Give(minBtn.MouseButton1Click:Connect(function()
+        self:Close()
+    end))
+    self._maid:Give(maxBtn.MouseButton1Click:Connect(function()
+        self:ToggleMaximize()
+    end))
+    self._maid:Give(toggleBtn.MouseButton1Click:Connect(function()
+        self:Toggle()
+    end))
+    self._maid:Give(lockBtn.MouseButton1Click:Connect(function()
+        self:ToggleLock()
+    end))
 
     do
         local dragging, dragInput, dragStart, startPos
         self._maid:Give(header.InputBegan:Connect(function(input)
-            if not self._state.Draggable then return end
+            if not self._state.Draggable or self._state.Locked or self._state.Maximized then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1
                 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
                 dragStart = input.Position
-                startPos = root.Position
+                startPos = main.Position
                 local conn
                 conn = input.Changed:Connect(function()
                     if input.UserInputState == Enum.UserInputState.End then
@@ -398,11 +493,18 @@ function Library:CreateWindow(...)
         end))
         self._maid:Give(UserInputService.InputChanged:Connect(function(input)
             if dragging and input == dragInput then
+                if self._state.Locked or self._state.Maximized or not self._state.Draggable then
+                    dragging = false
+                    return
+                end
                 local delta = input.Position - dragStart
-                root.Position = UDim2.new(
+                main.Position = UDim2.new(
                     startPos.X.Scale, startPos.X.Offset + delta.X,
                     startPos.Y.Scale, startPos.Y.Offset + delta.Y
                 )
+                if not self._state.Maximized then
+                    self._origPos = main.Position
+                end
             end
         end))
     end
@@ -423,10 +525,10 @@ function Window:SetCornerRadius(n)
     n = tonumber(n) or 0
     if n < 0 then n = 0 end
     self._state.CornerRadius = n
-    local udim = UDim.new(0, n)
-    self._rootCorner.CornerRadius = udim
-    self._headerCorner.CornerRadius = udim
-    self._footerCorner.CornerRadius = udim
+    local u = UDim.new(0, n)
+    self._rootCorner.CornerRadius = u
+    self._headerCorner.CornerRadius = u
+    self._footerCorner.CornerRadius = u
     return self
 end
 
@@ -446,27 +548,33 @@ end
 
 function Window:SetSize(sz)
     if typeof(sz) == "UDim2" then
-        self._root.Size = sz
+        self._main.Size = sz
+        if not self._state.Maximized then
+            self._origSize = sz
+        end
     end
     return self
 end
 
-function Window:SetPosition(pos)
-    if typeof(pos) == "UDim2" then
-        self._root.Position = pos
+function Window:SetPosition(p)
+    if typeof(p) == "UDim2" then
+        self._main.Position = p
+        if not self._state.Maximized then
+            self._origPos = p
+        end
     end
     return self
 end
 
-function Window:SetDraggable(bool)
-    self._state.Draggable = bool and true or false
+function Window:SetDraggable(b)
+    self._state.Draggable = b and true or false
     return self
 end
 
 function Window:SetTheme(t)
     if type(t) ~= "table" then return self end
     for k, v in pairs(t) do self._theme[k] = v end
-    if t.Background then self._root.BackgroundColor3 = t.Background end
+    if t.Background then self._main.BackgroundColor3 = t.Background end
     if t.Surface then
         self._header.BackgroundColor3 = t.Surface
         self._footerBar.BackgroundColor3 = t.Surface
@@ -479,15 +587,19 @@ end
 
 function Window:GetState(key)
     if key == nil then
-        local copy = {}
-        for k, v in pairs(self._state) do copy[k] = v end
-        return copy
+        local c = {}
+        for k, v in pairs(self._state) do c[k] = v end
+        return c
     end
     return self._state[key]
 end
 
 function Window:GetRoot()
     return self._screen
+end
+
+function Window:GetMain()
+    return self._main
 end
 
 function Window:GetContent()
@@ -502,7 +614,7 @@ end
 function Window:Close()
     if not self._state.Open then return self end
     self._state.Open = false
-    self._root.Visible = false
+    self._main.Visible = false
     self.Closed:Fire()
     self.Toggled:Fire(false)
     return self
@@ -511,9 +623,55 @@ end
 function Window:Open()
     if self._state.Open then return self end
     self._state.Open = true
-    self._root.Visible = true
+    self._main.Visible = true
     self.Opened:Fire()
     self.Toggled:Fire(true)
+    return self
+end
+
+function Window:Lock()
+    if self._state.Locked then return self end
+    self._state.Locked = true
+    if self._lockBtn then self._lockBtn.Text = "Unlock" end
+    self.Locked:Fire()
+    return self
+end
+
+function Window:Unlock()
+    if not self._state.Locked then return self end
+    self._state.Locked = false
+    if self._lockBtn then self._lockBtn.Text = "Lock" end
+    self.Unlocked:Fire()
+    return self
+end
+
+function Window:ToggleLock()
+    if self._state.Locked then self:Unlock() else self:Lock() end
+    return self
+end
+
+function Window:Maximize()
+    if self._state.Maximized then return self end
+    self._state.Maximized = true
+    self._origSize = self._main.Size
+    self._origPos  = self._main.Position
+    self._main.Position = UDim2.fromScale(0.5, 0.5)
+    self._main.Size = UDim2.new(1, -24, 1, -24)
+    self.Maximized:Fire()
+    return self
+end
+
+function Window:Restore()
+    if not self._state.Maximized then return self end
+    self._state.Maximized = false
+    self._main.Size = self._origSize
+    self._main.Position = self._origPos
+    self.Restored:Fire()
+    return self
+end
+
+function Window:ToggleMaximize()
+    if self._state.Maximized then self:Restore() else self:Maximize() end
     return self
 end
 
